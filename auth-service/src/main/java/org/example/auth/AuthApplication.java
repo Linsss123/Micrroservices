@@ -57,11 +57,11 @@ public class AuthApplication {
             String userId = request.username.trim();
             Instant now = Instant.now();
             String token = Jwts.builder()
-                    .subject(userId)
-                    .issuedAt(Date.from(now))
-                    .expiration(Date.from(now.plusSeconds(3600)))
+                    .setSubject(userId)
+                    .setIssuedAt(Date.from(now))
+                    .setExpiration(Date.from(now.plusSeconds(3600)))
                     .claim("uid", userId)
-                    .signWith(key())
+                    .signWith(key(), io.jsonwebtoken.SignatureAlgorithm.HS256)
                     .compact();
 
             return ResponseEntity.ok(new LoginResponse(token));
