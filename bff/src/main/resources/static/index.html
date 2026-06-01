@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Distribuerad Chat – Demo‑klient</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 2rem; }
+    h1 { margin-top: 0; }
+    section { border: 1px solid #ddd; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    label { display: block; margin: 0.5rem 0 0.25rem; }
+    input, textarea { width: 100%; padding: 0.5rem; }
+    button { padding: 0.5rem 1rem; }
+    .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .row > div { flex: 1 1 300px; }
+    pre { background: #f7f7f7; padding: 0.5rem; border-radius: 6px; overflow: auto; }
+    #status { font-size: 0.9rem; color: #555; }
+    .msg { border-bottom: 1px solid #eee; padding: 0.5rem 0; }
+    .msg:last-child { border-bottom: 0; }
+    .ok { color: #0a7d00; }
+    .err { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1>Distribuerad Chat – Demo‑klient (BFF)</h1>
+  <div id="status">Status: <em>ej inloggad</em></div>
+
+  <section>
+    <h2>1) Logga in (hämtar JWT från Auth Service via BFF)</h2>
+    <div class="row">
+      <div>
+        <label for="username">Användarnamn</label>
+        <input id="username" placeholder="t.ex. alice"/>
+      </div>
+      <div>
+        <label for="password">Lösenord</label>
+        <input id="password" type="password" placeholder="valfritt i denna demo"/>
+      </div>
+    </div>
+    <p>
+      <button id="btnLogin">Logga in</button>
+      <span id="loginMsg"></span>
+    </p>
+    <pre id="tokenBox" style="display:none"></pre>
+  </section>
+
+  <section>
+    <h2>2) Meddelanden</h2>
+    <div class="row">
+      <div>
+        <label for="senderId">Avsändar‑ID (t.ex. användarnamn)</label>
+        <input id="senderId" placeholder="t.ex. alice"/>
+      </div>
+      <div>
+        <label for="text">Meddelande</label>
+        <input id="text" placeholder="Skriv något…"/>
+      </div>
+    </div>
+    <p>
+      <button id="btnSend">Skicka meddelande</button>
+      <span id="sendMsg"></span>
+    </p>
+    <p>
+      <button id="btnRefresh">Hämta meddelanden</button>
+    </p>
+    <div id="messages"></div>
+  </section>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const tokenBox = document.getElementById('tokenBox');
+    const loginMsg = document.getElementById('loginMsg');
+    const sendMsg = document.getElementById('sendMsg');
+    const messagesEl = document.getElementById('messages');
+
+    let token = null;
+
+    function setStatus(text, cls) {
+      statusEl.innerHTML = 'Status: ' + (cls ? `<span class="${cls}">${text}</span>` : text);
+    }
+
+    async function login() {
+      loginMsg.textContent = '';
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value; // valfritt i demo
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        if (!res.ok) throw new Error('Inloggning misslyckades: ' + res.status);
+        const data = await res.json();
+        token = data.token;
+        tokenBox.style.display = 'block';
+        tokenBox.textContent = token;
+        setStatus('inloggad', 'ok');
+        loginMsg.textContent = 'JWT mottagen';
+      } catch (e) {
+        setStatus('ej inloggad', 'err');
+        loginMsg.textContent = e.message;
+      }
+    }
+
+    async function sendMessage() {
+      sendMsg.textContent = '';
+      if (!token) { sendMsg.textContent = 'Du måste logga in först'; return; }
+      const senderId = document.getElementById('senderId').value.trim();
+      const text = document.getElementById('text').value.trim();
+      try {
+        const res = await fetch('/api/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          },
+          body: JSON.stringify({ senderId, text })
+        });
+        if (!res.ok) throw new Error('Skickande misslyckades: ' + res.status);
+        sendMsg.textContent = 'Skickat!';
+        await listMessages();
+      } catch (e) {
+        sendMsg.textContent = e.message;
+      }
+    }
+
+    function fmtTs(ts) {
+      try { return new Date(ts).toLocaleString(); } catch { return ts; }
+    }
+
+    async function listMessages() {
+      messagesEl.innerHTML = '';
+      if (!token) { messagesEl.textContent = 'Du måste logga in först'; return; }
+      try {
+        const res = await fetch('/api/messages', {
+          headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (!res.ok) throw new Error('Hämtning misslyckades: ' + res.status);
+        const data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          messagesEl.textContent = 'Inga meddelanden ännu';
+          return;
+        }
+        messagesEl.innerHTML = data.map(m => `
+          <div class="msg">
+            <div><strong>${m.senderId ?? ''}</strong> – <em>${fmtTs(m.timestamp)}</em></div>
+            <div>${(m.text ?? '').toString().replaceAll('<','&lt;')}</div>
+            <small>ID: ${m.id}</small>
+          </div>
+        `).join('');
+      } catch (e) {
+        messagesEl.textContent = e.message;
+      }
+    }
+
+    document.getElementById('btnLogin').addEventListener('click', login);
+    document.getElementById('btnSend').addEventListener('click', sendMessage);
+    document.getElementById('btnRefresh').addEventListener('click', listMessages);
+  </script>
+</body>
+</html>
