@@ -1,7 +1,7 @@
 package org.example.bff.api;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
-import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
@@ -14,10 +14,12 @@ public class BffProxyController {
 
     private final RestTemplate rest = new RestTemplate();
 
-    // For en första iteration, hårdkoda interna tjänsternas bas-URLer (kan flyttas till config senare)
-    private static final String AUTH_BASE = "http://localhost:8081";
-    private static final String USER_BASE = "http://localhost:8082";
-    private static final String MESSAGE_BASE = "http://localhost:8083";
+    @Value("${services.auth.base-url:http://localhost:8081}")
+    private String AUTH_BASE;
+    @Value("${services.user.base-url:http://localhost:8082}")
+    private String USER_BASE;
+    @Value("${services.message.base-url:http://localhost:8083}")
+    private String MESSAGE_BASE;
 
     // 1) Login (öppen endpoint)
     @PostMapping("/login")
