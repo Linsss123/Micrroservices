@@ -21,26 +21,42 @@ import java.util.Date;
 import java.util.Map;
 
 @SpringBootApplication
+/**
+ * Auth-tjänstens instegspunkt och enkla inloggnings-API.
+ *
+ * Översikt:
+ * - Tillhandahåller ett minimalistiskt /login-endpoint som utfärdar ett signerat JWT.
+ * - Tjänsten är helt öppen (permitAll) och stateless, lämpad som demo/POC.
+ * - Hemlig nyckel är hårdkodad för enkelhet i demo – byt till säker konfiguration i produktion.
+ */
 public class AuthApplication {
+    /** Startar Spring Boot-applikationen. */
     public static void main(String[] args) {
         SpringApplication.run(AuthApplication.class, args);
     }
 
-    // Simple security configuration: allow all requests (we only expose /login here)
     @Bean
+    /**
+     * Säkerhetskonfiguration: tillåter alla anrop och kör stateless.
+     */
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable());
         http.authorizeHttpRequests(reg -> reg.anyRequest().permitAll());
-        // Ingen Basic Auth; stateless för att undvika webbläsarens auth‑utmaningar
         http.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         return http.build();
     }
 
     @RestController
+    /**
+     * REST-kontroller för inloggning.
+     *
+     * Flöde för /login:
+     * - Enkel validering av att användarnamn finns (demo).
+     * - Bygger ett JWT med subject=användarnamn, iat/exp och en claim uid.
+     * - Signerar med HMAC-SHA256 och returnerar token som JSON.
+     */
     static class LoginController {
-        // NOTE: For demo only. Replace with environment/config secret in production.
         private static final String SECRET_BASE64 =
-                // 256-bit key in base64 (randomly generated for demo purposes)
                 "u6N2m0m3p7oW2xkq1N2c4V7y9B3d8F1h2J4l6O8q0R2t4W6y8A0C2E4G6I8K0M2";
 
         private SecretKey key() {
@@ -48,8 +64,14 @@ public class AuthApplication {
         }
 
         @PostMapping("/login")
+        /**
+         * Logga in och erhåll ett JWT.
+         *
+         * Validering: kräver att fältet username inte är tomt (demo).
+         * @param request Enkel DTO med username/password
+         * @return 200 OK med token vid lyckad validering, annars 401
+         */
         public ResponseEntity<?> login(@RequestBody LoginRequest request) {
-            // Very basic demo validation. Replace with real user lookup & password check.
             if (request == null || request.username == null || request.username.isBlank()) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(Map.of("error", "Invalid credentials"));
@@ -69,11 +91,14 @@ public class AuthApplication {
         }
 
         static class LoginRequest {
+            /** Användarnamn (krävs i denna demo). */
             public String username;
+            /** Lösenord (ignoreras i denna demo). */
             public String password;
         }
 
         static class LoginResponse {
+            /** Utfärdat JWT-token. */
             public final String token;
 
             public LoginResponse(String token) {

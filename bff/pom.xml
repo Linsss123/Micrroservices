@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Modul‑POM för BFF.
+
+  Syfte:
+  - Ärver versionshantering och plugin‑inställningar från rot‑POM:en.
+  - Drar in Spring Boot Web + Security samt JJWT beroenden som används
+    för REST‑proxy och JWT‑validering i BFF.
+-->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -14,6 +22,7 @@
     <name>BFF</name>
     <packaging>jar</packaging>
 
+    <!-- BFF‑beroenden: Web + Security + JJWT (API + impl + jackson bindning) -->
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -43,6 +52,7 @@
     </dependencies>
 
     <build>
+        <!-- Spring Boot plugin för att paketera fat‑jar och möjliggöra spring‑boot:run -->
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

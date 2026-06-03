@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Modul‑POM för User Service.
+
+  Syfte:
+  - Ärver Spring Boot BOM och pluginhantering från rot‑POM.
+  - Drar in endast Web‑starter (ingen databas i demon; in‑memory‑lager används).
+-->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -14,6 +21,7 @@
     <name>User Service</name>
     <packaging>jar</packaging>
 
+    <!-- Endast web‑beroende, eftersom lagring sker i minnet -->
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -22,6 +30,7 @@
     </dependencies>
 
     <build>
+        <!-- Spring Boot plugin för körbar jar -->
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

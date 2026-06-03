@@ -1,4 +1,16 @@
 <!doctype html>
+<!--
+  Demo‑klient för BFF‑lagret.
+
+  Syfte:
+  - Visar det typiska flödet: Logga in → få JWT → skicka/proxa anrop till interna tjänster.
+  - Använder BFF‑API:t under /api/** och förlitar sig på att BFF vidarebefordrar Authorization.
+
+  Struktur:
+  - Sektion 1: Inloggning (POST /api/login)
+  - Sektion 2: Meddelanden (POST/GET /api/messages via BFF)
+  - <script> innehåller enkel JS utan ramverk för att demonstrera anropen.
+-->
 <html lang="sv">
 <head>
   <meta charset="utf-8"/>
@@ -26,6 +38,7 @@
   <div id="status">Status: <em>ej inloggad</em></div>
 
   <section>
+    <!-- Sektion 1: Inloggning mot Auth via BFF (/api/login) -->
     <h2>1) Logga in (hämtar JWT från Auth Service via BFF)</h2>
     <div class="row">
       <div>
@@ -45,6 +58,7 @@
   </section>
 
   <section>
+    <!-- Sektion 2: Meddelanden via BFF (/api/messages) med Authorization: Bearer <JWT> -->
     <h2>2) Meddelanden</h2>
     <div class="row">
       <div>
@@ -67,6 +81,8 @@
   </section>
 
   <script>
+    // Enkel klientlogik för att prata med BFF.
+    // Notera att alla anrop går mot /api/** och att vi skickar med JWT i Authorization där det krävs.
     const statusEl = document.getElementById('status');
     const tokenBox = document.getElementById('tokenBox');
     const loginMsg = document.getElementById('loginMsg');
@@ -79,6 +95,7 @@
       statusEl.innerHTML = 'Status: ' + (cls ? `<span class="${cls}">${text}</span>` : text);
     }
 
+    // Logga in: POST /api/login (öppen). Svarar med { token } som vi sparar lokalt.
     async function login() {
       loginMsg.textContent = '';
       const username = document.getElementById('username').value.trim();
@@ -102,6 +119,7 @@
       }
     }
 
+    // Skicka meddelande: POST /api/messages (kräver Authorization: Bearer <JWT>)
     async function sendMessage() {
       sendMsg.textContent = '';
       if (!token) { sendMsg.textContent = 'Du måste logga in först'; return; }
@@ -124,10 +142,12 @@
       }
     }
 
+    // Hjälp: format timestamp till lokal sträng
     function fmtTs(ts) {
       try { return new Date(ts).toLocaleString(); } catch { return ts; }
     }
 
+    // Lista meddelanden: GET /api/messages (kräver Authorization)
     async function listMessages() {
       messagesEl.innerHTML = '';
       if (!token) { messagesEl.textContent = 'Du måste logga in först'; return; }
@@ -153,6 +173,7 @@
       }
     }
 
+    // Knyt knappar → funktioner
     document.getElementById('btnLogin').addEventListener('click', login);
     document.getElementById('btnSend').addEventListener('click', sendMessage);
     document.getElementById('btnRefresh').addEventListener('click', listMessages);

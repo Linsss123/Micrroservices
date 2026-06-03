@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Modul‑POM för Auth Service.
+
+  Syfte:
+  - Ärver dependencyManagement och plugininställningar från rot‑POM.
+  - Drar in Spring Boot Web + Security samt JJWT för att kunna exponera /login
+    och signera JWT i demon.
+-->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -14,6 +22,7 @@
     <name>Auth Service</name>
     <packaging>jar</packaging>
 
+    <!-- Web + Security för REST‑endpointen, JJWT för tokenbygge -->
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -43,6 +52,7 @@
     </dependencies>
 
     <build>
+        <!-- Spring Boot plugin för att paketera körbar jar -->
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
