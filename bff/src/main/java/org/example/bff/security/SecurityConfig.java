@@ -12,7 +12,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.AuthorityUtils;
@@ -20,6 +19,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.security.config.http.SessionCreationPolicy;
 
 import javax.crypto.SecretKey;
 import java.io.IOException;
@@ -40,10 +40,19 @@ public class SecurityConfig {
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.csrf(csrf -> csrf.disable());
         http.authorizeHttpRequests(reg -> reg
-                .requestMatchers("/health", "/api/login").permitAll()
+                // Öppna hälsa, inloggning och statiska resurser (index.html m.m.)
+                .requestMatchers(
+                        "/health",
+                        "/api/login",
+                        "/",              // serverar index.html
+                        "/index.html",
+                        "/favicon.ico",
+                        "/static/**"
+                ).permitAll()
                 .anyRequest().authenticated()
         );
-        http.httpBasic(Customizer.withDefaults());
+        // Kör helt stateless och utan Basic Auth för att undvika webbläsarens auth‑utmaningar
+        http.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         http.addFilterBefore(new JwtFilter(), BasicAuthenticationFilter.class);
         return http.build();
     }
