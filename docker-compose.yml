@@ -20,3 +20,17 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest    # Demo‑inlogg (byt i produktion)
       RABBITMQ_DEFAULT_PASS: guest    # Demo‑lösen (byt i produktion)
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"   # MySQL standardport
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass          # Demo‑lösenord för root
+      MYSQL_DATABASE: microdb                # Skapa standarddatabas
+      MYSQL_USER: appuser                    # App‑användare
+      MYSQL_PASSWORD: apppass                # App‑lösenord
+    volumes:
+      - db_data:/var/lib/mysql               # Persistent lagring mellan körningar
+
+volumes:
+  db_data:

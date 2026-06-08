@@ -5,7 +5,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/users")
@@ -27,7 +26,11 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class UserController {
 
-    private final Map<String, User> store = new ConcurrentHashMap<>();
+    private final UserRepository repo;
+
+    public UserController(UserRepository repo) {
+        this.repo = repo;
+    }
 
     @PostMapping
     /**
@@ -41,9 +44,9 @@ public class UserController {
      */
     public ResponseEntity<UserView> create(@RequestBody CreateUserRequest req) {
         String id = (req.id == null || req.id.isBlank()) ? UUID.randomUUID().toString() : req.id;
-        User user = new User(id, req.username, req.password);
-        store.put(id, user);
-        return ResponseEntity.status(HttpStatus.CREATED).body(UserView.from(user));
+        UserEntity entity = new UserEntity(id, req.username, req.password);
+        UserEntity saved = repo.save(entity);
+        return ResponseEntity.status(HttpStatus.CREATED).body(UserView.from(saved));
     }
 
     @GetMapping
@@ -54,7 +57,7 @@ public class UserController {
      */
     public List<UserView> list() {
         List<UserView> out = new ArrayList<>();
-        for (User u : store.values()) out.add(UserView.from(u));
+        for (UserEntity u : repo.findAll()) out.add(UserView.from(u));
         return out;
     }
 
@@ -66,9 +69,10 @@ public class UserController {
      * @return 200 OK med användaren, eller 404 om ej funnen
      */
     public ResponseEntity<UserView> get(@PathVariable String id) {
-        User user = store.get(id);
-        if (user == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(UserView.from(user));
+        return repo.findById(id)
+                .map(UserView::from)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PutMapping("/{id}")
@@ -83,13 +87,13 @@ public class UserController {
      * @return 200 OK med uppdaterad användare, eller 404 om resurs saknas
      */
     public ResponseEntity<UserView> update(@PathVariable String id, @RequestBody UpdateUserRequest req) {
-        User existing = store.get(id);
-        if (existing == null) return ResponseEntity.notFound().build();
-        String newUsername = req.username != null ? req.username : existing.username;
-        String newPassword = req.password != null ? req.password : existing.password;
-        User updated = new User(id, newUsername, newPassword);
-        store.put(id, updated);
-        return ResponseEntity.ok(UserView.from(updated));
+        return repo.findById(id)
+                .map(e -> {
+                    if (req.username != null) e.setUsername(req.username);
+                    if (req.password != null) e.setPassword(req.password);
+                    return ResponseEntity.ok(UserView.from(repo.save(e)));
+                })
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @DeleteMapping("/{id}")
@@ -100,8 +104,8 @@ public class UserController {
      * @return 204 No Content om något togs bort, annars 404
      */
     public ResponseEntity<Void> delete(@PathVariable String id) {
-        User removed = store.remove(id);
-        if (removed == null) return ResponseEntity.notFound().build();
+        if (!repo.existsById(id)) return ResponseEntity.notFound().build();
+        repo.deleteById(id);
         return ResponseEntity.noContent().build();
     }
 
@@ -121,20 +125,7 @@ public class UserController {
         public String password;
     }
 
-    static class User {
-        /** Unikt ID. */
-        public final String id;
-        /** Användarnamn. */
-        public final String username;
-        /** Lösenord (klartext för enkel demo; använd hash i verkligheten). */
-        public final String password;
-
-        public User(String id, String username, String password) {
-            this.id = id;
-            this.username = username;
-            this.password = password;
-        }
-    }
+    // Intern in-memory modell ersatt av JPA-entity (UserEntity)
 
     /**
      * Svar-DTO utan lösenord.
@@ -147,7 +138,7 @@ public class UserController {
             this.id = id; this.username = username;
         }
 
-        static UserView from(User u) { return new UserView(u.id, u.username); }
+        static UserView from(UserEntity u) { return new UserView(u.getId(), u.getUsername()); }
     }
 
     @PostMapping("/verify")
@@ -157,12 +148,10 @@ public class UserController {
      */
     public ResponseEntity<Void> verify(@RequestBody VerifyRequest req) {
         if (req == null || req.username == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        for (User u : store.values()) {
-            if (Objects.equals(u.username, req.username) && Objects.equals(u.password, req.password)) {
-                return ResponseEntity.ok().build();
-            }
-        }
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        return repo.findByUsername(req.username)
+                .filter(u -> Objects.equals(u.getPassword(), req.password))
+                .map(u -> ResponseEntity.ok().<Void>build())
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
     }
 
     static class VerifyRequest {

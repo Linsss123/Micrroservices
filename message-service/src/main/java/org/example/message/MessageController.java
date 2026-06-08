@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/messages")
@@ -30,8 +29,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class MessageController {
 
-    private final Map<String, Message> store = new ConcurrentHashMap<>();
     private final RabbitTemplate rabbitTemplate;
+    private final MessageRepository repo;
 
     @Value("${app.mq.exchange:chat.exchange}")
     private String exchange;
@@ -42,8 +41,9 @@ public class MessageController {
     /**
      * Injekterar RabbitTemplate som används för publicering till MQ.
      */
-    public MessageController(RabbitTemplate rabbitTemplate) {
+    public MessageController(RabbitTemplate rabbitTemplate, MessageRepository repo) {
         this.rabbitTemplate = rabbitTemplate;
+        this.repo = repo;
     }
 
     @PostMapping
@@ -60,12 +60,12 @@ public class MessageController {
      * Felhantering:
      * - Eventuella undantag vid MQ‑publicering loggas som varning och ignoreras.
      */
-    public ResponseEntity<Message> publish(@RequestBody PublishRequest req) {
+    public ResponseEntity<MessageEntity> publish(@RequestBody PublishRequest req) {
         // 1) Generera id och bygg modellen
         String id = UUID.randomUUID().toString();
-        Message msg = new Message(id, req.senderId, req.text, Instant.now());
-        // 2) Spara i butiken
-        store.put(id, msg);
+        MessageEntity msg = new MessageEntity(id, req.senderId, req.text, Instant.now());
+        // 2) Spara i databasen
+        repo.save(msg);
         // 3) Bygg MQ‑payload (manuell lättvikts‑JSON)
         String payload = "{\"type\":\"message-published\",\"id\":\"" + id + "\",\"senderId\":\"" + safe(req.senderId) + "\"}";
         try {
@@ -84,8 +84,8 @@ public class MessageController {
      *
      * Not: Sorteringen lämnas till klienten i detta enkla exempel – här returneras i godtycklig ordning.
      */
-    public List<Message> list() {
-        return new ArrayList<>(store.values());
+    public List<MessageEntity> list() {
+        return new ArrayList<>(repo.findAll());
     }
 
     @GetMapping("/{id}")
@@ -95,10 +95,10 @@ public class MessageController {
      * @param id meddelandets ID
      * @return 200 OK med Message eller 404 om inte funnen
      */
-    public ResponseEntity<Message> get(@PathVariable String id) {
-        Message m = store.get(id);
-        if (m == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(m);
+    public ResponseEntity<MessageEntity> get(@PathVariable String id) {
+        return repo.findById(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     static class PublishRequest {
@@ -113,23 +113,7 @@ public class MessageController {
         public String text;
     }
 
-    static class Message {
-        /** Unikt ID för meddelandet. */
-        public final String id;
-        /** Avsändarens ID. */
-        public final String senderId;
-        /** Textinnehållet. */
-        public final String text;
-        /** Tidsstämpel för när meddelandet skapades. */
-        public final Instant timestamp;
-
-        public Message(String id, String senderId, String text, Instant timestamp) {
-            this.id = id;
-            this.senderId = senderId;
-            this.text = text;
-            this.timestamp = timestamp;
-        }
-    }
+    // Intern in-memory Message-klass ersatt av JPA-entity (MessageEntity)
 
     /**
      * Mycket enkel escaping för att undvika trasig JSON i manuellt byggt payload.
