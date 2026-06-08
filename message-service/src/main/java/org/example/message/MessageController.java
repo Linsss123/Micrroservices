@@ -113,8 +113,6 @@ public class MessageController {
         public String text;
     }
 
-    // Intern in-memory Message-klass ersatt av JPA-entity (MessageEntity)
-
     /**
      * Mycket enkel escaping för att undvika trasig JSON i manuellt byggt payload.
      *

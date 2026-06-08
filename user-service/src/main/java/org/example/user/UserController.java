@@ -3,6 +3,7 @@ package org.example.user;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.util.*;
 
@@ -27,9 +28,11 @@ import java.util.*;
 public class UserController {
 
     private final UserRepository repo;
+    private final PasswordEncoder passwordEncoder;
 
-    public UserController(UserRepository repo) {
+    public UserController(UserRepository repo, PasswordEncoder passwordEncoder) {
         this.repo = repo;
+        this.passwordEncoder = passwordEncoder;
     }
 
     @PostMapping
@@ -44,7 +47,8 @@ public class UserController {
      */
     public ResponseEntity<UserView> create(@RequestBody CreateUserRequest req) {
         String id = (req.id == null || req.id.isBlank()) ? UUID.randomUUID().toString() : req.id;
-        UserEntity entity = new UserEntity(id, req.username, req.password);
+        String hashed = (req.password == null) ? null : passwordEncoder.encode(req.password);
+        UserEntity entity = new UserEntity(id, req.username, hashed);
         UserEntity saved = repo.save(entity);
         return ResponseEntity.status(HttpStatus.CREATED).body(UserView.from(saved));
     }
@@ -90,7 +94,7 @@ public class UserController {
         return repo.findById(id)
                 .map(e -> {
                     if (req.username != null) e.setUsername(req.username);
-                    if (req.password != null) e.setPassword(req.password);
+                    if (req.password != null) e.setPassword(passwordEncoder.encode(req.password));
                     return ResponseEntity.ok(UserView.from(repo.save(e)));
                 })
                 .orElseGet(() -> ResponseEntity.notFound().build());
@@ -125,8 +129,6 @@ public class UserController {
         public String password;
     }
 
-    // Intern in-memory modell ersatt av JPA-entity (UserEntity)
-
     /**
      * Svar-DTO utan lösenord.
      */
@@ -149,7 +151,7 @@ public class UserController {
     public ResponseEntity<Void> verify(@RequestBody VerifyRequest req) {
         if (req == null || req.username == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         return repo.findByUsername(req.username)
-                .filter(u -> Objects.equals(u.getPassword(), req.password))
+                .filter(u -> u.getPassword() != null && req.password != null && passwordEncoder.matches(req.password, u.getPassword()))
                 .map(u -> ResponseEntity.ok().<Void>build())
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
     }
