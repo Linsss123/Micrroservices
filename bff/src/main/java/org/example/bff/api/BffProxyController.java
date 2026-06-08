@@ -3,6 +3,8 @@ package org.example.bff.api;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.client.RestTemplate;
 
 import java.net.URI;
@@ -53,10 +55,11 @@ public class BffProxyController {
      * Skapa användare via user-tjänsten.
      *
      * Säkerhet:
-     * - Kräver giltig Authorization: Bearer <JWT>. Filtreras/valideras i SecurityConfig.
+     * - Öppen i BFF (permitAll) så att registrering kan ske före första inloggning.
+     * - Övriga /users-operations kräver JWT.
      *
      * Forwarding:
-     * - Behåller Authorization-headern till user-service.
+     * - Behåller Authorization-headern till user-service om den finns (inte nödvändig för create).
      */
     @PostMapping("/users")
     public ResponseEntity<?> createUser(@RequestHeader HttpHeaders headers, @RequestBody Map<String, Object> body) {
@@ -100,7 +103,19 @@ public class BffProxyController {
      */
     @PostMapping("/messages")
     public ResponseEntity<?> publishMessage(@RequestHeader HttpHeaders headers, @RequestBody Map<String, Object> body) {
-        return forward(HttpMethod.POST, MESSAGE_BASE + "/messages", headers, body);
+        // Här tvingar vi att avsändar-id alltid är det autentiserade användarnamnet (JWT subject/uid)
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getPrincipal() == null) {
+            // Borde inte inträffa eftersom endpointen är skyddad, men returnera 401 om så skulle ske
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+        String username = String.valueOf(auth.getPrincipal());
+
+        // Kopiera inkommande body (kan vara null) och överskriv/ange senderId
+        Map<String, Object> out = (body == null) ? new java.util.HashMap<>() : new java.util.HashMap<>(body);
+        out.put("senderId", username);
+
+        return forward(HttpMethod.POST, MESSAGE_BASE + "/messages", headers, out);
     }
 
     @GetMapping("/messages")

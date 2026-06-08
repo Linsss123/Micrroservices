@@ -14,11 +14,13 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
 
 import javax.crypto.SecretKey;
 import java.time.Instant;
 import java.util.Date;
 import java.util.Map;
+import java.util.Objects;
 
 @SpringBootApplication
 /**
@@ -51,8 +53,9 @@ public class AuthApplication {
      * REST-kontroller för inloggning.
      *
      * Flöde för /login:
-     * - Enkel validering av att användarnamn finns (demo).
-     * - Bygger ett JWT med subject=användarnamn, iat/exp och en claim uid.
+     * - Admin-särfall: endast username "admin" med password "admin" accepteras.
+     * - Vanlig användare: verifiera credentials via User Service (POST /users/verify med {username,password}).
+     * - Vid lyckad verifiering: Bygg ett JWT med subject=användarnamn, iat/exp och en claim uid.
      * - Signerar med HMAC-SHA256 och returnerar token som JSON.
      */
     static class LoginController {
@@ -63,11 +66,17 @@ public class AuthApplication {
             return Keys.hmacShaKeyFor(Decoders.BASE64.decode(SECRET_BASE64));
         }
 
+        private final RestTemplate rest = new RestTemplate();
+        // Bas-URL till user-service för att verifiera användarens credentials
+        private final String USER_BASE = System.getProperty("services.user.base-url", System.getenv().getOrDefault("SERVICES_USER_BASE_URL", "http://localhost:8082"));
+
         @PostMapping("/login")
         /**
          * Logga in och erhåll ett JWT.
          *
-         * Validering: kräver att fältet username inte är tomt (demo).
+         * Regler i denna uppgift:
+         * - Admin-inlogg: username "admin" och password "admin" krävs.
+         * - Vanliga användare: måste verifieras mot user-service (POST /users/verify) med korrekt password.
          * @param request Enkel DTO med username/password
          * @return 200 OK med token vid lyckad validering, annars 401
          */
@@ -76,24 +85,53 @@ public class AuthApplication {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(Map.of("error", "Invalid credentials"));
             }
-
             String userId = request.username.trim();
+
+            // 1) Admin-särfall: kräver exakt admin/admin
+            if (Objects.equals(userId, "admin")) {
+                if (!Objects.equals(request.password, "admin")) {
+                    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                            .body(Map.of("error", "Invalid credentials"));
+                }
+                return ResponseEntity.ok(new LoginResponse(issueToken(userId)));
+            }
+
+            // 2) Övriga användare: verifiera credentials via user-service
+            try {
+                ResponseEntity<Void> verifyResp = rest.postForEntity(
+                        USER_BASE + "/users/verify",
+                        Map.of("username", userId, "password", Objects.toString(request.password, "")),
+                        Void.class
+                );
+                if (!verifyResp.getStatusCode().is2xxSuccessful()) {
+                    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                            .body(Map.of("error", "Invalid credentials"));
+                }
+            } catch (Exception e) {
+                // Om user-service ej nås eller svarar 401, returnera 401 av säkerhetsskäl
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("error", "Unable to verify credentials"));
+            }
+
+            // Existerande användare → utfärda token
+            return ResponseEntity.ok(new LoginResponse(issueToken(userId)));
+        }
+
+        private String issueToken(String userId) {
             Instant now = Instant.now();
-            String token = Jwts.builder()
+            return Jwts.builder()
                     .setSubject(userId)
                     .setIssuedAt(Date.from(now))
                     .setExpiration(Date.from(now.plusSeconds(3600)))
                     .claim("uid", userId)
                     .signWith(key(), io.jsonwebtoken.SignatureAlgorithm.HS256)
                     .compact();
-
-            return ResponseEntity.ok(new LoginResponse(token));
         }
 
         static class LoginRequest {
             /** Användarnamn (krävs i denna demo). */
             public String username;
-            /** Lösenord (ignoreras i denna demo). */
+            /** Lösenord (krävs för inloggning utom för admin/admin-särfallet). */
             public String password;
         }
 

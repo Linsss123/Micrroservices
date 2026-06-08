@@ -78,8 +78,9 @@ java -jar bff/target/bff-1.0-SNAPSHOT.jar
 - http://localhost:8080
 
 Flöde i webbsidan:
-1) Logga in med valfritt användarnamn (lösenord ignoreras i demon) → BFF kallar `Auth Service` och får JWT.
-2) Skicka meddelande → BFF kallar `Message Service` (med JWT). Meddelandet lagras och event publiceras till RabbitMQ.
+1) Skapa användare med användarnamn och lösenord i sektion 2 (öppet anrop). Alternativt kan du använda admin/admin som förkonfigurerat konto.
+2) Logga in med rätt användarnamn och lösenord → BFF kallar `Auth Service` och får JWT.
+3) Skicka meddelande → BFF kallar `Message Service` (med JWT). Meddelandet lagras och event publiceras till RabbitMQ.
 3) Hämta meddelanden → Lista befintliga meddelanden via BFF.
 
 ---
@@ -91,17 +92,17 @@ Bas‑URL: `http://localhost:8080/api`
 - POST `/login` (öppen)
   - Body:
     ```json
-    { "username": "alice", "password": "valfritt" }
+    { "username": "alice", "password": "hemligt" }
     ```
   - Svar:
     ```json
     { "token": "<JWT>" }
     ```
 
-- POST `/users` (kräver `Authorization: Bearer <JWT>`) – skapa användare
+- POST `/users` (öppen) – skapa användare
   - Body ex:
     ```json
-    { "username": "alice", "displayName": "Alice" }
+    { "username": "alice", "password": "hemligt" }
     ```
 
 - GET `/users` (kräver JWT) – lista användare
@@ -109,14 +110,19 @@ Bas‑URL: `http://localhost:8080/api`
 - GET `/users/{id}` (kräver JWT) – hämta en användare
 
 - PUT `/users/{id}` (kräver JWT) – uppdatera användare
+  - Body ex (partiell uppdatering):
+    ```json
+    { "username": "nytt-alias", "password": "nytt-lösen" }
+    ```
 
 - DELETE `/users/{id}` (kräver JWT) – ta bort användare
 
 - POST `/messages` (kräver JWT) – publicera/lagra meddelande
   - Body ex:
     ```json
-    { "senderId": "alice", "text": "Hej världen" }
+    { "text": "Hej världen" }
     ```
+  - Not: `senderId` sätts alltid automatiskt av BFF till det autentiserade användarnamnet (hämtat från JWT) och klientens eventuella värde ignoreras.
 
 - GET `/messages` (kräver JWT) – lista meddelanden
 
@@ -124,20 +130,20 @@ Bas‑URL: `http://localhost:8080/api`
 
 Exempel med curl:
 ```
-# 1) Logga in och spara token i var
+# 1) Skapa användare (öppet)
+curl -s -X POST http://localhost:8080/api/users \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"hemligt"}' | jq .
+
+# 2) Logga in och spara token i var
 TOKEN=$(curl -s -X POST http://localhost:8080/api/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"x"}' | jq -r .token)
+  -d '{"username":"alice","password":"hemligt"}' | jq -r .token)
 
-# 2) Skapa användare
-curl -s -X POST http://localhost:8080/api/users \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"username":"alice","displayName":"Alice"}' | jq .
-
-# 3) Publicera meddelande
+# 3) Publicera meddelande (kräver JWT)
 curl -s -X POST http://localhost:8080/api/messages \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"senderId":"alice","text":"Hej!"}' | jq .
+  -d '{"text":"Hej!"}' | jq .
 
 # 4) Lista meddelanden
 curl -s http://localhost:8080/api/messages -H "Authorization: Bearer $TOKEN" | jq .

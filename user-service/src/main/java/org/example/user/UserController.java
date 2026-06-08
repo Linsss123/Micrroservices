@@ -15,11 +15,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * Översikt:
  * - Avsett som demo/POC utan persistent datalager – allt lagras i en trådsäker karta i minnet.
  * - CRUD‑endpoints för att skapa, lista, läsa, uppdatera och radera användare.
+ * - Nytt: användare skapas med {username, password} och lösenord krävs för inloggning.
  * - Returnerar lämpliga HTTP‑koder: 201 vid skapande, 200 vid lyckad hämtning/uppdatering,
  *   204 vid radering och 404 när en resurs saknas.
  *
+ * Säkerhetsnot:
+ * - API:t returnerar aldrig lösenord i svar. Svar-DTO:n (UserView) innehåller endast id och username.
+ *
  * Begränsningar:
- * - Ingen validering, auth eller unikhetskontroll på username i detta exempel.
+ * - Ingen avancerad validering eller unikhetskontroll på username i denna demo.
  */
 public class UserController {
 
@@ -32,24 +36,26 @@ public class UserController {
      * Regeln för ID:
      * - Om begäran inte innehåller ett icke‑blankt id genereras ett slumpmässigt UUID.
      *
-     * @param req begärandekropp med valfritt id, samt username och displayName
-     * @return 201 Created med den skapade användaren
+     * @param req begärandekropp med valfritt id, samt obligatoriska username och password
+     * @return 201 Created med den skapade användaren (utan lösenord i svaret)
      */
-    public ResponseEntity<User> create(@RequestBody CreateUserRequest req) {
+    public ResponseEntity<UserView> create(@RequestBody CreateUserRequest req) {
         String id = (req.id == null || req.id.isBlank()) ? UUID.randomUUID().toString() : req.id;
-        User user = new User(id, req.username, req.displayName);
+        User user = new User(id, req.username, req.password);
         store.put(id, user);
-        return ResponseEntity.status(HttpStatus.CREATED).body(user);
+        return ResponseEntity.status(HttpStatus.CREATED).body(UserView.from(user));
     }
 
     @GetMapping
     /**
      * Lista alla användare.
      *
-     * @return en ny lista med alla användarobjekt i butiken
+     * @return en ny lista med alla användare utan lösenord
      */
-    public List<User> list() {
-        return new ArrayList<>(store.values());
+    public List<UserView> list() {
+        List<UserView> out = new ArrayList<>();
+        for (User u : store.values()) out.add(UserView.from(u));
+        return out;
     }
 
     @GetMapping("/{id}")
@@ -59,10 +65,10 @@ public class UserController {
      * @param id användarens unika ID
      * @return 200 OK med användaren, eller 404 om ej funnen
      */
-    public ResponseEntity<User> get(@PathVariable String id) {
+    public ResponseEntity<UserView> get(@PathVariable String id) {
         User user = store.get(id);
         if (user == null) return ResponseEntity.notFound().build();
-        return ResponseEntity.ok(user);
+        return ResponseEntity.ok(UserView.from(user));
     }
 
     @PutMapping("/{id}")
@@ -76,14 +82,14 @@ public class UserController {
      * @param req inkommande fält att uppdatera
      * @return 200 OK med uppdaterad användare, eller 404 om resurs saknas
      */
-    public ResponseEntity<User> update(@PathVariable String id, @RequestBody UpdateUserRequest req) {
+    public ResponseEntity<UserView> update(@PathVariable String id, @RequestBody UpdateUserRequest req) {
         User existing = store.get(id);
         if (existing == null) return ResponseEntity.notFound().build();
-        User updated = new User(id,
-                req.username != null ? req.username : existing.username,
-                req.displayName != null ? req.displayName : existing.displayName);
+        String newUsername = req.username != null ? req.username : existing.username;
+        String newPassword = req.password != null ? req.password : existing.password;
+        User updated = new User(id, newUsername, newPassword);
         store.put(id, updated);
-        return ResponseEntity.ok(updated);
+        return ResponseEntity.ok(UserView.from(updated));
     }
 
     @DeleteMapping("/{id}")
@@ -104,15 +110,15 @@ public class UserController {
         public String id;
         /** Användarnamn (ingen validering i demot). */
         public String username;
-        /** Visningsnamn. */
-        public String displayName;
+        /** Lösenord. I demo lagras det i klartext i minnet (gör inte så i produktion). */
+        public String password;
     }
 
     static class UpdateUserRequest {
         /** Nytt användarnamn, eller null för att behålla befintligt. */
         public String username;
-        /** Nytt visningsnamn, eller null för att behålla befintligt. */
-        public String displayName;
+        /** Nytt lösenord, eller null för att behålla befintligt. */
+        public String password;
     }
 
     static class User {
@@ -120,13 +126,47 @@ public class UserController {
         public final String id;
         /** Användarnamn. */
         public final String username;
-        /** Visningsnamn. */
-        public final String displayName;
+        /** Lösenord (klartext för enkel demo; använd hash i verkligheten). */
+        public final String password;
 
-        public User(String id, String username, String displayName) {
+        public User(String id, String username, String password) {
             this.id = id;
             this.username = username;
-            this.displayName = displayName;
+            this.password = password;
         }
+    }
+
+    /**
+     * Svar-DTO utan lösenord.
+     */
+    static class UserView {
+        public final String id;
+        public final String username;
+
+        UserView(String id, String username) {
+            this.id = id; this.username = username;
+        }
+
+        static UserView from(User u) { return new UserView(u.id, u.username); }
+    }
+
+    @PostMapping("/verify")
+    /**
+     * Verifierar att kombinationen {username, password} stämmer mot lagrad användare.
+     * @return 200 OK om match, annars 401 Unauthorized
+     */
+    public ResponseEntity<Void> verify(@RequestBody VerifyRequest req) {
+        if (req == null || req.username == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        for (User u : store.values()) {
+            if (Objects.equals(u.username, req.username) && Objects.equals(u.password, req.password)) {
+                return ResponseEntity.ok().build();
+            }
+        }
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+    }
+
+    static class VerifyRequest {
+        public String username;
+        public String password;
     }
 }

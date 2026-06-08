@@ -23,6 +23,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * Lagring och robusthet:
  * - Meddelanden lagras i en trådsäker in‑memory‑karta och överlever inte omstart.
  * - MQ‑publicering är omgiven av try/catch; ett MQ‑fel blockerar inte API‑svaret.
+ *
+ * Not:
+ * - I det här systemet sätts vanligtvis avsändarens identitet i BFF‑lagret utifrån JWT ("senderId" = användarnamn).
+ *   Klienten skickar därför endast {"text"} till BFF; Message‑tjänsten tar emot kompletta fält efter proxyn.
  */
 public class MessageController {
 
@@ -98,7 +102,12 @@ public class MessageController {
     }
 
     static class PublishRequest {
-        /** ID på avsändaren (fri text i detta exempel). */
+        /**
+         * ID på avsändaren.
+         *
+         * I helhetslösningen sätts detta i BFF från det autentiserade användarnamnet (JWT subject/uid).
+         * Fältet lämnas kvar här för tydlighet i den interna modellen.
+         */
         public String senderId;
         /** Själva textinnehållet i meddelandet. */
         public String text;

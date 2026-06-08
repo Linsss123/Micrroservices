@@ -20,6 +20,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.http.HttpMethod;
 
 import javax.crypto.SecretKey;
 import java.io.IOException;
@@ -67,6 +68,8 @@ public class SecurityConfig {
                         "/favicon.ico",
                         "/static/**"
                 ).permitAll()
+                // Tillåt att skapa användare utan att vara inloggad, så att man kan registrera sig före login
+                .requestMatchers(HttpMethod.POST, "/api/users").permitAll()
                 .anyRequest().authenticated()
         );
         http.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
