@@ -1,9 +1,36 @@
+##
+## Docker Compose för lokalt demo‑körscenario
+##
+## Syfte:
+## - Startar en RabbitMQ‑instans lokalt så att Message‑tjänsten kan publicera
+##   händelsen "message-published" till en Topic Exchange.
+## - Management UI exponeras på port 15672 (inlogg: guest/guest) för att enkelt
+##   kunna inspektera köer, exchangear och meddelanden vid utveckling.
+##
+## Användning:
+##   docker compose up -d
+##   docker compose down
+##
 services:
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:3-management      # Officiell RabbitMQ‑image med webb‑UI
     ports:
-      - "5672:5672"    # AMQP
-      - "15672:15672"  # Management UI
+      - "5672:5672"    # AMQP port som applikationer använder
+      - "15672:15672"  # RabbitMQ Management UI (http://localhost:15672)
     environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_USER: guest    # Demo‑inlogg (byt i produktion)
+      RABBITMQ_DEFAULT_PASS: guest    # Demo‑lösen (byt i produktion)
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"   # MySQL standardport
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass          # Demo‑lösenord för root
+      MYSQL_DATABASE: microdb                # Skapa standarddatabas
+      MYSQL_USER: appuser                    # App‑användare
+      MYSQL_PASSWORD: apppass                # App‑lösenord
+    volumes:
+      - db_data:/var/lib/mysql               # Persistent lagring mellan körningar
+
+volumes:
+  db_data:

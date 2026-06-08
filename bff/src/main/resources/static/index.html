@@ -1,4 +1,17 @@
 <!doctype html>
+<!--
+  Demo‑klient för BFF‑lagret.
+
+  Syfte:
+  - Visar det typiska flödet: Logga in → få JWT → skicka/proxa anrop till interna tjänster.
+  - Använder BFF‑API:t under /api/** och förlitar sig på att BFF vidarebefordrar Authorization.
+
+  Struktur:
+  - Sektion 1: Inloggning (POST /api/login)
+  - Sektion 2: Användare (öppet POST /api/users för registrering, samt GET/PUT/DELETE som kräver JWT)
+  - Sektion 3: Meddelanden (POST/GET /api/messages via BFF; klienten skickar endast {"text"} – BFF sätter senderId från JWT)
+  - <script> innehåller enkel JS utan ramverk för att demonstrera anropen.
+-->
 <html lang="sv">
 <head>
   <meta charset="utf-8"/>
@@ -26,7 +39,12 @@
   <div id="status">Status: <em>ej inloggad</em></div>
 
   <section>
+    <!-- Sektion 1: Inloggning mot Auth via BFF (/api/login) -->
     <h2>1) Logga in (hämtar JWT från Auth Service via BFF)</h2>
+    <p style="margin-top: -0.5rem; color:#555;">
+      Tips: Du kan alltid logga in som <strong>admin/admin</strong> (särfall). För vanliga användare –
+      <em>skapa först en användare</em> i sektion 2 med ett lösenord, därefter loggar du in med samma uppgifter.
+    </p>
     <div class="row">
       <div>
         <label for="username">Användarnamn</label>
@@ -34,7 +52,7 @@
       </div>
       <div>
         <label for="password">Lösenord</label>
-        <input id="password" type="password" placeholder="valfritt i denna demo"/>
+        <input id="password" type="password" placeholder="för admin: admin"/>
       </div>
     </div>
     <p>
@@ -45,17 +63,63 @@
   </section>
 
   <section>
-    <h2>2) Meddelanden</h2>
+    <!-- Sektion 2: Användare via BFF (/api/users...). OBS: Skapa är öppet (ingen inlogg krävs) -->
+    <h2>2) Användare</h2>
+    <p style="margin-top: -0.5rem; color:#555;">
+      Skapa‑anropet är <strong>öppet</strong> så att du kan registrera en användare (med lösenord) innan första inloggning.
+      Övriga anrop kräver att du är inloggad och skickar med JWT.
+    </p>
     <div class="row">
       <div>
-        <label for="senderId">Avsändar‑ID (t.ex. användarnamn)</label>
-        <input id="senderId" placeholder="t.ex. alice"/>
+        <h3>Skapa användare</h3>
+        <label for="cu_username">Användarnamn</label>
+        <input id="cu_username" placeholder="t.ex. alice"/>
+        <label for="cu_password">Lösenord</label>
+        <input id="cu_password" type="password" placeholder="välj ett lösenord"/>
+        <p>
+          <button id="btnCreateUser">Skapa</button>
+          <span id="createUserMsg"></span>
+        </p>
       </div>
+      <div>
+        <h3>Hämta/uppdatera/ta bort</h3>
+        <label for="u_id">Användar‑ID</label>
+        <input id="u_id" placeholder="fyll i ett ID"/>
+        <div class="row">
+          <div>
+            <p>
+              <button id="btnGetUser">Hämta</button>
+              <button id="btnDeleteUser" style="margin-left:0.5rem">Ta bort</button>
+            </p>
+          </div>
+        </div>
+        <label for="uu_username">Nytt användarnamn (valfritt)</label>
+        <input id="uu_username" placeholder="lämna tomt för att behålla"/>
+        <label for="uu_password">Nytt lösenord (valfritt)</label>
+        <input id="uu_password" type="password" placeholder="lämna tomt för att behålla"/>
+        <p>
+          <button id="btnUpdateUser">Uppdatera</button>
+          <span id="updateUserMsg"></span>
+        </p>
+      </div>
+    </div>
+    <h3>Lista användare</h3>
+    <p>
+      <button id="btnListUsers">Lista alla</button>
+    </p>
+    <div id="users"></div>
+  </section>
+
+  <section>
+    <!-- Sektion 3: Meddelanden via BFF (/api/messages) med Authorization: Bearer <JWT> -->
+    <h2>3) Meddelanden</h2>
+    <div class="row">
       <div>
         <label for="text">Meddelande</label>
         <input id="text" placeholder="Skriv något…"/>
       </div>
     </div>
+    <p id="sendAs" style="color:#555; margin-top:0.25rem; display:none"></p>
     <p>
       <button id="btnSend">Skicka meddelande</button>
       <span id="sendMsg"></span>
@@ -67,22 +131,30 @@
   </section>
 
   <script>
+    // Enkel klientlogik för att prata med BFF.
+    // Notera att alla anrop går mot /api/** och att vi skickar med JWT i Authorization där det krävs.
     const statusEl = document.getElementById('status');
     const tokenBox = document.getElementById('tokenBox');
     const loginMsg = document.getElementById('loginMsg');
     const sendMsg = document.getElementById('sendMsg');
     const messagesEl = document.getElementById('messages');
+    const usersEl = document.getElementById('users');
+    const createUserMsg = document.getElementById('createUserMsg');
+    const updateUserMsg = document.getElementById('updateUserMsg');
+    const sendAsEl = document.getElementById('sendAs');
 
     let token = null;
+    let currentUser = null;
 
     function setStatus(text, cls) {
       statusEl.innerHTML = 'Status: ' + (cls ? `<span class="${cls}">${text}</span>` : text);
     }
 
+    // Logga in: POST /api/login (öppen). Svarar med { token } som vi sparar lokalt.
     async function login() {
       loginMsg.textContent = '';
       const username = document.getElementById('username').value.trim();
-      const password = document.getElementById('password').value; // valfritt i demo
+      const password = document.getElementById('password').value;
       try {
         const res = await fetch('/api/login', {
           method: 'POST',
@@ -96,16 +168,142 @@
         tokenBox.textContent = token;
         setStatus('inloggad', 'ok');
         loginMsg.textContent = 'JWT mottagen';
+        // Läs ut användarnamnet från JWT (uid/sub) och exponera som "Skickar som"
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1] || ''));
+          const uid = payload && (payload.uid || payload.sub);
+          if (uid) {
+            const cuUsername = document.getElementById('cu_username');
+            currentUser = uid;
+            if (sendAsEl) { sendAsEl.style.display = 'block'; sendAsEl.textContent = 'Skickar som: ' + uid; }
+            if (cuUsername && !cuUsername.value) cuUsername.value = uid;
+          }
+        } catch {}
       } catch (e) {
         setStatus('ej inloggad', 'err');
         loginMsg.textContent = e.message;
       }
     }
 
+    // Hjälp: hämta auth‑headers eller kasta om ej inloggad
+    function authHeaders() {
+      if (!token) throw new Error('Du måste logga in först');
+      return { 'Authorization': 'Bearer ' + token };
+    }
+
+    // Skapa användare: POST /api/users (öppet – Authorization krävs inte)
+    async function createUser() {
+      createUserMsg.textContent = '';
+      try {
+        const username = document.getElementById('cu_username').value.trim();
+        const password = document.getElementById('cu_password').value;
+        if (!username) throw new Error('Användarnamn krävs');
+        if (!password) throw new Error('Lösenord krävs');
+        // Bygg headers: Content-Type alltid; Authorization endast om vi redan har token
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = 'Bearer ' + token;
+        const res = await fetch('/api/users', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ username, password })
+        });
+        if (!res.ok) throw new Error('Skapande misslyckades: ' + res.status);
+        createUserMsg.textContent = 'Skapad';
+        await listUsers();
+      } catch (e) {
+        createUserMsg.textContent = e.message;
+      }
+    }
+
+    // Lista användare: GET /api/users
+    async function listUsers() {
+      usersEl.innerHTML = '';
+      try {
+        const res = await fetch('/api/users', { headers: authHeaders() });
+        if (!res.ok) throw new Error('Hämtning misslyckades: ' + res.status);
+        const data = await res.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          usersEl.textContent = 'Inga användare ännu';
+          return;
+        }
+        usersEl.innerHTML = data.map(u => `
+          <div class="msg">
+            <div><strong>${(u.username ?? '').toString().replaceAll('<','&lt;')}</strong></div>
+            <small>ID: ${u.id}</small>
+          </div>
+        `).join('');
+      } catch (e) {
+        usersEl.textContent = e.message;
+      }
+    }
+
+    // Hämta en användare: GET /api/users/{id}
+    async function getUserById() {
+      const id = document.getElementById('u_id').value.trim();
+      if (!id) { usersEl.textContent = 'Fyll i ett ID'; return; }
+      usersEl.innerHTML = '';
+      try {
+        const res = await fetch('/api/users/' + encodeURIComponent(id), { headers: authHeaders() });
+        if (res.status === 404) { usersEl.textContent = 'Användare ej funnen'; return; }
+        if (!res.ok) throw new Error('Hämtning misslyckades: ' + res.status);
+        const u = await res.json();
+        usersEl.innerHTML = `
+          <div class="msg">
+            <div><strong>${(u.username ?? '').toString().replaceAll('<','&lt;')}</strong></div>
+            <small>ID: ${u.id}</small>
+          </div>
+        `;
+      } catch (e) {
+        usersEl.textContent = e.message;
+      }
+    }
+
+    // Uppdatera användare: PUT /api/users/{id}
+    async function updateUserById() {
+      updateUserMsg.textContent = '';
+      const id = document.getElementById('u_id').value.trim();
+      const username = document.getElementById('uu_username').value;
+      const password = document.getElementById('uu_password').value;
+      if (!id) { updateUserMsg.textContent = 'Fyll i ID'; return; }
+      try {
+        const body = { username: username || null, password: password || null };
+        const res = await fetch('/api/users/' + encodeURIComponent(id), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify(body)
+        });
+        if (res.status === 404) { updateUserMsg.textContent = 'Användare ej funnen'; return; }
+        if (!res.ok) throw new Error('Uppdatering misslyckades: ' + res.status);
+        updateUserMsg.textContent = 'Uppdaterad';
+        await listUsers();
+      } catch (e) {
+        updateUserMsg.textContent = e.message;
+      }
+    }
+
+    // Ta bort användare: DELETE /api/users/{id}
+    async function deleteUserById() {
+      const id = document.getElementById('u_id').value.trim();
+      if (!id) { usersEl.textContent = 'Fyll i ID'; return; }
+      usersEl.innerHTML = '';
+      try {
+        const res = await fetch('/api/users/' + encodeURIComponent(id), {
+          method: 'DELETE',
+          headers: authHeaders()
+        });
+        if (res.status === 404) { usersEl.textContent = 'Användare ej funnen'; return; }
+        if (res.status !== 204) throw new Error('Radering misslyckades: ' + res.status);
+        usersEl.textContent = 'Borttagen';
+        await listUsers();
+      } catch (e) {
+        usersEl.textContent = e.message;
+      }
+    }
+
+    // Skicka meddelande: POST /api/messages (kräver Authorization: Bearer <JWT>)
     async function sendMessage() {
       sendMsg.textContent = '';
       if (!token) { sendMsg.textContent = 'Du måste logga in först'; return; }
-      const senderId = document.getElementById('senderId').value.trim();
       const text = document.getElementById('text').value.trim();
       try {
         const res = await fetch('/api/messages', {
@@ -114,7 +312,8 @@
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + token
           },
-          body: JSON.stringify({ senderId, text })
+          // BFF sätter alltid senderId = användarnamnet från JWT; klienten behöver inte skicka det
+          body: JSON.stringify({ text })
         });
         if (!res.ok) throw new Error('Skickande misslyckades: ' + res.status);
         sendMsg.textContent = 'Skickat!';
@@ -124,10 +323,12 @@
       }
     }
 
+    // Hjälp: format timestamp till lokal sträng
     function fmtTs(ts) {
       try { return new Date(ts).toLocaleString(); } catch { return ts; }
     }
 
+    // Lista meddelanden: GET /api/messages (kräver Authorization)
     async function listMessages() {
       messagesEl.innerHTML = '';
       if (!token) { messagesEl.textContent = 'Du måste logga in först'; return; }
@@ -153,9 +354,15 @@
       }
     }
 
+    // Knyt knappar → funktioner
     document.getElementById('btnLogin').addEventListener('click', login);
     document.getElementById('btnSend').addEventListener('click', sendMessage);
     document.getElementById('btnRefresh').addEventListener('click', listMessages);
+    document.getElementById('btnCreateUser').addEventListener('click', createUser);
+    document.getElementById('btnListUsers').addEventListener('click', listUsers);
+    document.getElementById('btnGetUser').addEventListener('click', getUserById);
+    document.getElementById('btnUpdateUser').addEventListener('click', updateUserById);
+    document.getElementById('btnDeleteUser').addEventListener('click', deleteUserById);
   </script>
 </body>
 </html>

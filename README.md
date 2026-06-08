@@ -78,8 +78,9 @@ java -jar bff/target/bff-1.0-SNAPSHOT.jar
 - http://localhost:8080
 
 Flöde i webbsidan:
-1) Logga in med valfritt användarnamn (lösenord ignoreras i demon) → BFF kallar `Auth Service` och får JWT.
-2) Skicka meddelande → BFF kallar `Message Service` (med JWT). Meddelandet lagras och event publiceras till RabbitMQ.
+1) Skapa användare med användarnamn och lösenord i sektion 2 (öppet anrop). Alternativt kan du använda admin/admin som förkonfigurerat konto.
+2) Logga in med rätt användarnamn och lösenord → BFF kallar `Auth Service` och får JWT.
+3) Skicka meddelande → BFF kallar `Message Service` (med JWT). Meddelandet lagras och event publiceras till RabbitMQ.
 3) Hämta meddelanden → Lista befintliga meddelanden via BFF.
 
 ---
@@ -91,17 +92,17 @@ Bas‑URL: `http://localhost:8080/api`
 - POST `/login` (öppen)
   - Body:
     ```json
-    { "username": "alice", "password": "valfritt" }
+    { "username": "alice", "password": "hemligt" }
     ```
   - Svar:
     ```json
     { "token": "<JWT>" }
     ```
 
-- POST `/users` (kräver `Authorization: Bearer <JWT>`) – skapa användare
+- POST `/users` (öppen) – skapa användare
   - Body ex:
     ```json
-    { "username": "alice", "displayName": "Alice" }
+    { "username": "alice", "password": "hemligt" }
     ```
 
 - GET `/users` (kräver JWT) – lista användare
@@ -109,14 +110,19 @@ Bas‑URL: `http://localhost:8080/api`
 - GET `/users/{id}` (kräver JWT) – hämta en användare
 
 - PUT `/users/{id}` (kräver JWT) – uppdatera användare
+  - Body ex (partiell uppdatering):
+    ```json
+    { "username": "nytt-alias", "password": "nytt-lösen" }
+    ```
 
 - DELETE `/users/{id}` (kräver JWT) – ta bort användare
 
 - POST `/messages` (kräver JWT) – publicera/lagra meddelande
   - Body ex:
     ```json
-    { "senderId": "alice", "text": "Hej världen" }
+    { "text": "Hej världen" }
     ```
+  - Not: `senderId` sätts alltid automatiskt av BFF till det autentiserade användarnamnet (hämtat från JWT) och klientens eventuella värde ignoreras.
 
 - GET `/messages` (kräver JWT) – lista meddelanden
 
@@ -124,20 +130,20 @@ Bas‑URL: `http://localhost:8080/api`
 
 Exempel med curl:
 ```
-# 1) Logga in och spara token i var
+# 1) Skapa användare (öppet)
+curl -s -X POST http://localhost:8080/api/users \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"hemligt"}' | jq .
+
+# 2) Logga in och spara token i var
 TOKEN=$(curl -s -X POST http://localhost:8080/api/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"alice","password":"x"}' | jq -r .token)
+  -d '{"username":"alice","password":"hemligt"}' | jq -r .token)
 
-# 2) Skapa användare
-curl -s -X POST http://localhost:8080/api/users \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"username":"alice","displayName":"Alice"}' | jq .
-
-# 3) Publicera meddelande
+# 3) Publicera meddelande (kräver JWT)
 curl -s -X POST http://localhost:8080/api/messages \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"senderId":"alice","text":"Hej!"}' | jq .
+  -d '{"text":"Hej!"}' | jq .
 
 # 4) Lista meddelanden
 curl -s http://localhost:8080/api/messages -H "Authorization: Bearer $TOKEN" | jq .
@@ -189,23 +195,38 @@ Relevanta properties (defaultvärden finns i respektive `application.properties`
 
 ---
 
-### Felsökning
-- BFF svarar 401 Unauthorized på skyddade endpoints
-  - Säkerställ att `Authorization: Bearer <JWT>` skickas och att JWT kommer från denna demo (samma hemlighet som i Auth Service används i BFF för validering).
-- Message Service loggar varning om MQ
-  - Starta RabbitMQ lokalt eller justera anslutningsinställningar. Om brokern saknas loggas en varning men anropet lyckas ändå.
-- Portkrockar
-  - Ändra `server.port` i respektive tjänsts properties.
+### Rekommenderad läsordning (för dokumentation och kommentarer)
 
----
+För snabb förståelse av helheten, börja med övergripande konfiguration och säkerhet, gå sedan mot trafikflöden och slutligen domänlogik. Följ detta spår:
 
-### Nästa steg (för VG)
-- Dockerisera varje modul (Dockerfile), ev. docker‑compose.
-- Kubernetes‑manifester (Deployment, Service, ConfigMap/Secret) och driftsättning i t.ex. Minikube.
-- Intern gRPC‑kommunikation (t.ex. mellan Message och User) och/eller konsument (Bot Service) av `message-published`.
-- Persistens med riktiga databaser (UserDB, MessageDB).
+1) Överblick och körning
+- README.md (denna fil) – arkitektur, portar och hur man kör.  
+- docker-compose.yml – kommenterad, visar RabbitMQ‑instans, portar och hur du startar/stoppar lokalt.
 
----
+2) Konfiguration per tjänst (förstå adresser/portar och MQ‑inställningar)
+- bff/src/main/resources/application.properties – kommenterad: BFF‑port och bas‑URL:er för auth/user/message.  
+- auth-service/src/main/resources/application.properties – kommenterad: port för Auth.  
+- user-service/src/main/resources/application.properties – kommenterad: port för User.  
+- message-service/src/main/resources/application.properties – kommenterad: port + RabbitMQ‑koppling samt exchange/routing‑key/queue.
 
-### Licens
-Projektet är en utbildnings/demo‑lösning. Använd och modifiera fritt inom ramen för kurs/laboration.
+3) Säkerhet och autentisering
+- bff/src/main/java/org/example/bff/security/SecurityConfig.java – Javadoc och flödeskommentarer: vilka endpoints är öppna, hur JWT valideras och läggs i SecurityContext.  
+- auth-service/src/main/java/org/example/auth/AuthApplication.java – Javadoc: hur /login bygger och signerar JWT (subject/exp/claim).
+
+4) Inträdet för klienttrafik och proxylogik
+- bff/src/main/java/org/example/bff/api/BffProxyController.java – Javadoc och stegvis kommentar i helpern `forward(...)` (headers, Content‑Type, vidarebefordran).  
+- bff/src/main/java/org/example/bff/BffApplication.java – entrypoint + health.
+
+5) Domäntjänster och kontrakt
+- user-service/src/main/java/org/example/user/UserController.java – Javadoc per endpoint/DTO, statuskoder, partiell uppdatering.  
+- message-service/src/main/java/org/example/message/MessageMqConfig.java – Javadoc: MQ‑topologi (exchange/queue/binding) och vilka properties som styr namn.  
+- message-service/src/main/java/org/example/message/MessageController.java – Javadoc; numrerade steg för publicering, best‑effort MQ‑felhantering, list/get.
+
+6) Demo‑klient (valfritt sist)
+- bff/src/main/resources/static/index.html – nu kommenterad: sektioner och JS‑flöde (login → token → calls).
+
+Tips för läsning av kommentarerna:
+- Läs först klassens Javadoc (syfte/ansvar).  
+- Läs sedan metoders Javadoc (in/ut, statuskoder, säkerhet).  
+- Följ därefter numrerade blockkommentarer i metodkroppar för exakta steg.  
+- Titta sist på hjälpare/DTO:er/konstanter.
